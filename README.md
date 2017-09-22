@@ -29,6 +29,5 @@ insertion
 
 Using the script
 ----------------------
-You can build the artifacts from source code using maven
-```$ mvn clean package```
+TBD
 
