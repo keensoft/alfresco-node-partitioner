@@ -68,3 +68,9 @@ $ ./pg_partitioner.sh swap 100000
 ```
 
 A **cron** script can be created in order to create new partitions `add-partition` once a nodes number limit is reached.
+
+
+Contributors
+----------------------
+
+* Raúl Sampedro
