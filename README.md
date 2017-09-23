@@ -46,7 +46,8 @@ Using the script
 **Syntax**
 
 ```
-$ pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap | add-partition] [nodesPerPartition]
+$ pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap | add-partition] \
+[nodesPerPartition]
 
 $ pg_partitioner.sh [unswap | count-nodes]
 
