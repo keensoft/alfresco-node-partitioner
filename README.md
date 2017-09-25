@@ -68,3 +68,9 @@ $ ./pg_partitioner.sh swap 100000
 ```
 
 A **cron** script can be created in order to create new partitions `add-partition` once a nodes number limit is reached.
+
+Todo list
+----------------------
+* Port this work to other database products (MySQL, MariaDB)
+* Re-consolidate partitions into a single table for Alfresco upgrading
+* Provide dynamic partition insertion based on patterns (local and global properties) and evaluating QName based expressions
