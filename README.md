@@ -46,7 +46,8 @@ Using the script
 **Syntax**
 
 ```
-$ pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap | add-partition] [nodesPerPartition]
+$ pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap | add-partition] \
+[nodesPerPartition]
 
 $ pg_partitioner.sh [unswap | count-nodes]
 
@@ -71,6 +72,12 @@ A **cron** script can be created in order to create new partitions `add-partitio
 
 Todo list
 ----------------------
+
 * Port this work to other database products (MySQL, MariaDB)
 * Re-consolidate partitions into a single table for Alfresco upgrading
 * Provide dynamic partition insertion based on patterns (local and global properties) and evaluating QName based expressions
+
+Contributors
+----------------------
+
+* Raúl Sampedro
