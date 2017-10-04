@@ -46,12 +46,13 @@ Using the script
 **Syntax**
 
 ```
-$ pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap | add-partition] \
-[nodesPerPartition]
-
-$ pg_partitioner.sh [unswap | count-nodes]
-
-$ pg_partitioner.sh [dump | restore] [folder]"
+Usage: ./pg_partitioner.sh <command> -db <database> -np <nodes-per-partition> -d <folder-path> -f <dump-file>
+	<command>: create-master | create-partitions | create-trigger | fill | analyze | swap
+	           unswap | count-nodes | dump | restore
+	-db: Alfresco database name
+	-np: Number of nodes to be stored on each partition
+	-d: Folder to store a dump
+	-f: File to restore a dump from
 ```
 
 **Samples**
@@ -60,12 +61,12 @@ Partitioning tables storing 100,000 nodes per partition.
 As `node_id` is used (which is primary on ALF_NODE table), every partition will store at least 30x this number.
 
 ```
-$ ./pg_partitioner.sh create-master 100000
-$ ./pg_partitioner.sh create-partitions 100000
-$ ./pg_partitioner.sh create-trigger 100000
-$ ./pg_partitioner.sh fill 100000
-$ ./pg_partitioner.sh analyze 100000
-$ ./pg_partitioner.sh swap 100000
+$ ./pg_partitioner.sh create-master -db alfresco
+$ ./pg_partitioner.sh create-partitions -db alfresco -np 100000
+$ ./pg_partitioner.sh create-trigger -db alfresco -np 100000
+$ ./pg_partitioner.sh fill -db alfresco -np 100000
+$ ./pg_partitioner.sh analyze -db alfresco -np 100000
+$ ./pg_partitioner.sh swap -db alfresco -np 100000
 ```
 
 A **cron** script can be created in order to create new partitions `add-partition` once a nodes number limit is reached.

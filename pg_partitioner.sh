@@ -1,131 +1,156 @@
 #!/bin/bash
+# Alfresco PostgreSQL partitioner.
 
-### DEFAULT VALUES
-DEFAULT_NODES_PER_PARTITION=4000
+set -o errexit
+set -o pipefail
+set -o nounset
+# set -o xtrace
+
+# THE DEFAULTS INITIALIZATION
+_arg_database_name=
+_arg_nodes_per_partition=
+_arg_dump_directory=
+_arg_restore_file=
+PARTITIONS=
+
+### FUNCTIONS
+function existsDatabase {
+	if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw $_arg_database_name; then
+		echo "Database $_arg_database_name exists in local PostgreSQL"
+	else
+		echo "ERROR: database $_arg_database_name does NOT exist in local PostgreSQL!"
+		exit
+	fi
+}
+
+function initNumberOfNodes {
+    COUNT_NODES=$(numberOfNodes)
+    PARTITIONS=$((($COUNT_NODES / $_arg_nodes_per_partition) + 1))
+}
 
 function numberOfNodes {
-	NONODES=`sudo -u postgres  psql -d alfresco -t -c "select max(node_id) from alf_node_properties"`
+	NONODES=`sudo -u postgres psql -d $_arg_database_name -t -c "select max(node_id) from alf_node_properties"`
 	echo "$NONODES";
 }
 
-### VARS
-if [[ -z $2 ]]
-then
-    NODES_PER_PARTITION=DEFAULT_NODES_PER_PARTITION
-else
-	NODES_PER_PARTITION=$2
-fi	
-
-COUNT_NODES=$(numberOfNodes)
-let " PARTITIONS = ($COUNT_NODES / $NODES_PER_PARTITION) + 1 "
-echo "$PARTITIONS partitions detected"
-DBNAME="alfresco"
-
-DUMP_DIR=/tmp/$DBNAME/$DBNAME_`date +%Y%m%d%H%M%S`.dump
-RESTORE_DIR=$DUMP_DIR
-
-### FUNCTIONS
 function dumpDB {
-	echo "Dumping DB..."
-	mkdir -p  /tmp/$DBNAME
-	sudo -u postgres pg_dump $DBNAME > $DUMP_DIR
-	echo "Done!"
+	echo "$(date) Dumping DB..."
+	mkdir -p $_arg_dump_directory
+	sudo -u postgres pg_dump $_arg_database_name > $_arg_dump_directory/$_arg_database_name.dump
+	echo "$(date) Dumping DB done!"
 }
 
 function restoreDB {
-	echo "Restoring DB..."
-	sudo -u postgres psql -t -c "drop database $DBNAME;"
-    sudo -u postgres psql -t -c "create database $DBNAME with encoding 'utf8';"
-	sudo -u postgres psql $DBNAME < $RESTORE_DIR
-	echo "Done!"	
+	echo "$(date) Restoring DB..."
+	sudo -u postgres psql -t -c "drop database $_arg_database_name;"
+    sudo -u postgres psql -t -c "create database $_arg_database_name with encoding 'utf8';"
+	sudo -u postgres psql $_arg_database_name < $_arg_restore_file
+	echo "$(date) Restoring DB done!"	
 }
 
 function createMasterTable {
 
-	echo "Creating Master Table ..."
+	echo "$(date) Creating Master Table ..."
 
-	sudo -u postgres psql -d alfresco -t -c "CREATE TABLE alf_node_properties_intermediate (LIKE alf_node_properties INCLUDING ALL);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE FUNCTION alf_node_properties_insert_trigger()
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_intermediate (LIKE alf_node_properties INCLUDING ALL);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE FUNCTION alf_node_properties_insert_trigger()
     						     RETURNS trigger AS \$\$ 
     					   	     BEGIN 
         						RAISE EXCEPTION 'Create partitions first.'; 
     						     END;
     						     \$\$ LANGUAGE plpgsql;"
-	sudo -u postgres psql -d alfresco -t -c "CREATE TRIGGER alf_node_properties_insert_trigger 
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TRIGGER alf_node_properties_insert_trigger 
     						     BEFORE INSERT ON alf_node_properties_intermediate 
     						     FOR EACH ROW EXECUTE PROCEDURE alf_node_properties_insert_trigger();"
 
 	echo "... table alf_node_properties_intermediate created!"
+	echo "$(date) Creating Master Table done!"
 
 }
 
 function createPartitions {
 
-	echo "Creating Partitions ..."
+	initNumberOfNodes
+
+	echo "$(date) Creating $PARTITIONS partitions..."
 
 	for i in `seq 1 $PARTITIONS`;
 	do
-	 let " PART_NAME = ($i * $NODES_PER_PARTITION)"
-	 let " MIN_LEVEL = ($i-1)*$NODES_PER_PARTITION "
-	 let " MAX_LEVEL = $MIN_LEVEL + $NODES_PER_PARTITION "
-	 sudo -u postgres psql -d alfresco -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+
+	 PART_NAME=$i
+	 MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
+	 MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
+
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
                                                     (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
                                                     INHERITS (alf_node_properties_intermediate);"
-	 sudo -u postgres psql -d alfresco -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-	 sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+	 sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
 
     echo "Partition alf_node_properties_$PART_NAME created"
 	 
 	done
 	
 	echo "$PARTITIONS has been created!"
+	echo "$(date) Creating partitions done!"
 }
 
 function addPartition {
 
-	echo "Add new partition ..."
+	initNumberOfNodes
+	PARTITIONS=$(($PARTITIONS + 1))
 
-	let " PART_NAME = ($PARTITIONS + 1) * $NODES_PER_PARTITION"
-	let " MIN_LEVEL = $PARTITIONS * $NODES_PER_PARTITION "
-	let " MAX_LEVEL = $MIN_LEVEL + $NODES_PER_PARTITION "
+	echo "$(date) Adding new partition ..."
 
-	sudo -u postgres psql -d alfresco -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+	PART_NAME=$PARTITIONS
+	MIN_LEVEL=$((($PARTITIONS - 1) * $_arg_nodes_per_partition))
+	MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
+
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
 	                                                (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
-	                                                INHERITS (alf_node_properties_intermediate);"
-	sudo -u postgres psql -d alfresco -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-	sudo -u postgres psql -d alfresco -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+	                                                INHERITS (alf_node_properties);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+
+	sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
 
     echo "Partition alf_node_properties_$PART_NAME created"
 
-    let " PARTITIONS = $PARTITIONS + 1 "
-
     triggerInsertRows
+
+	echo "$(date) Adding new partition done!"
 	 
 }
 
 function triggerInsertRows {
 
-	echo "Creating Trigger..."
+	# Can be used from addPartition with pre-calculated number of partitions
+	if [[ -z "$PARTITIONS" ]]; then
+	    initNumberOfNodes
+    fi
 
+	echo "$(date) Creating Trigger..."
+
+	body=
 	for i in `seq 1 $PARTITIONS`;
 	do
-	 let " PART_NAME = ($i * $NODES_PER_PARTITION)"
-	 let " MIN_LEVEL = ($i-1)*$NODES_PER_PARTITION "
-	 let " MAX_LEVEL = $MIN_LEVEL + $NODES_PER_PARTITION "
+	 PART_NAME=$i
+	 MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
+	 MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 	 if [ "$i" = "$PARTITIONS" ]
 	 then
 	 	body="IF (NEW.node_id > $MIN_LEVEL AND NEW.node_id <= $MAX_LEVEL) THEN INSERT INTO alf_node_properties_$PART_NAME VALUES (NEW.*); $body"
@@ -134,9 +159,7 @@ function triggerInsertRows {
 	 fi
 	done
 
-	echo "$body"
-
-	sudo -u postgres psql -d alfresco -t -c "CREATE OR REPLACE FUNCTION alf_node_properties_insert_trigger()
+	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE OR REPLACE FUNCTION alf_node_properties_insert_trigger()
 	        RETURNS trigger AS
 			  \$\$
 			  BEGIN 
@@ -146,25 +169,26 @@ function triggerInsertRows {
 			  END IF;
 			  RETURN NULL;
 			  END;
-              \$\$ LANGUAGE plpgsql;"	
+              \$\$ LANGUAGE plpgsql;"
 
     echo "Trigger alf_node_properties_insert_trigger has been created!"
+    echo "$(date) Creating Trigger done!"
 
 }
 
 function fill {
 
-    echo "Copying rows..."
+	initNumberOfNodes
+
+    echo "$(date) Copying rows..."
 
 	for i in `seq 1 $PARTITIONS`;
 	do
 
-	 let " MIN_LEVEL = ($i - 1)*$NODES_PER_PARTITION "
-	 echo $MIN_LEVEL
-	 let " MAX_LEVEL = $MIN_LEVEL + $NODES_PER_PARTITION "
-	 echo $MAX_LEVEL
+	 MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
+	 MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 
-	 sudo -u postgres psql -d alfresco -t -c "INSERT INTO alf_node_properties_intermediate (
+	 sudo -u postgres psql -d $_arg_database_name -t -c "INSERT INTO alf_node_properties_intermediate (
     							node_id,
     							actual_type_n,
     							persisted_type_n,
@@ -193,41 +217,46 @@ function fill {
 							FROM alf_node_properties
 							WHERE node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL;"
 	
-    echo "Rows for partition $i has been copied"
+    echo "$(date) Rows for partition $i has been copied"
 
 	done
 
- 	echo "All rows has been copied!"
+ 	echo "$(date) Copying rows done!"
 }
 
 function analyze {
 
-    echo "Analyzing new tables..."
+	initNumberOfNodes
+
+    echo "$(date) Analyzing new tables..."
+
     for i in `seq 1 $PARTITIONS`;
 	do
-	 let " PART_NAME = ($i * $NODES_PER_PARTITION)"
-	 sudo -u postgres psql -d alfresco -t -c "ANALYZE VERBOSE alf_node_properties_$PART_NAME" 
+	 PART_NAME=$i
+	 sudo -u postgres psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_$PART_NAME" 
     done
-    sudo -u postgres psql -d alfresco -t -c "ANALYZE VERBOSE alf_node_properties_intermediate" 
+    sudo -u postgres psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_intermediate" 
 
-    echo "Tables has been analyzed"
+    echo "$(date) Analyzing tables done!"
 }
 
 function swap {
 
-	echo "Swapping tables..."
+	initNumberOfNodes
 
-    sudo -u postgres psql -d alfresco -t -c "ALTER TABLE alf_node_properties RENAME TO alf_node_properties_retired"
-    sudo -u postgres psql -d alfresco -t -c "ALTER TABLE alf_node_properties_intermediate RENAME TO alf_node_properties"
-    sudo -u postgres psql -d alfresco -t -c "DROP TABLE alf_node_properties_retired"
-    sudo -u postgres psql -d alfresco -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties TO alfresco"
+	echo "$(date) Swapping tables..."
+
+    sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties RENAME TO alf_node_properties_retired"
+    sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_intermediate RENAME TO alf_node_properties"
+    sudo -u postgres psql -d $_arg_database_name -t -c "DROP TABLE alf_node_properties_retired"
+    sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties TO alfresco"
     for i in `seq 1 $PARTITIONS`;
 	do
-	 let " PART_NAME = ($i * $NODES_PER_PARTITION)"
-	 sudo -u postgres psql -d alfresco -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
+	 PART_NAME=$i
+	 sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
     done
 
-	echo "Partitioning is ready!"
+	echo "$(date) Swapping tables done!"
 
 }
 
@@ -241,66 +270,123 @@ function unswap {
 
 }
 
+function printHelp {
+	printf 'Usage: %s <command> -db <database> -np <nodes-per-partition> -d <folder-path> -f <dump-file> \n' "$0"
+	printf "\t%s\n" "<command>: create-master | create-partitions | create-trigger | fill | analyze | swap"
+	printf "\t%s\n" "           unswap | count-nodes | dump | restore"
+	printf "\t%s\n" "-db: Alfresco database name"
+	printf "\t%s\n" "-np: Number of nodes to be stored on each partition"
+	printf "\t%s\n" "-d: Folder to store a dump"           
+	printf "\t%s\n" "-f: File to restore a dump from"           
+}
+
+# db np d f
+function checkParams {
+
+	for i in $1; do
+		if [ "$i" = "db" ]; then
+			if [[ -z "$_arg_database_name" ]]; then
+				echo "ERROR: Database name is required!"
+				printHelp
+				exit 0
+			fi
+			existsDatabase
+		fi
+		if [ "$i" = "np" ]; then			
+			if [[ -z "$_arg_nodes_per_partition" ]]; then
+				echo "ERROR: Nodes per partition is required!"
+				printHelp
+				exit 0
+			fi
+		fi
+		if [ "$i" = "d" ]; then
+			if [[ -z "$_arg_dump_directory" ]]; then
+				echo "ERROR: Directory to store the dump is required!"
+				printHelp
+				exit 0
+			fi
+		fi
+		if [ "$i" = "f" ]; then
+			if [[ -z "$_arg_restore_file" ]]; then
+				echo "ERROR: File containing database dump is required!"
+				printHelp
+				exit 0
+			fi
+		fi
+	done
+
+}
+
+if [ $# -eq 0 ]; then
+	printHelp
+	exit 0
+fi
+
 ## EXECUTION 
-while :; do
-    case $1 in
-        create-master) 
-            createMasterTable
-            break
+call_func=
+required_params=
+while test $# -gt 0
+do
+    case "$1" in
+        create-master)
+            call_func="createMasterTable"
+            required_params="db"
         ;;
         create-partitions)
-            createPartitions
-            break
+            call_func="createPartitions"
+            required_params="db np"
         ;;
         create-trigger) 
-            triggerInsertRows
-            break
+            call_func="triggerInsertRows"
+            required_params="db np"
         ;;
         fill)
-            fill
-            break
+            call_func="fill"
+            required_params="db np"
         ;;
         analyze)
-            analyze
-            break
+            call_func="analyze"
+            required_params="db np"
         ;;
         swap)
-            swap
-            break
+            call_func="swap"
+            required_params="db np"
         ;;
         unswap)
-            unswap
-            break
+            call_func="unswap"
         ;;
         add-partition)
-            addPartition
-            break
+            call_func="addPartition"
+            required_params="db np"
         ;;
         count-nodes)
-            echo "Number of nodes: $NONODES" 
-            break
+            call_func="numberOfNodes"
+            required_params="db"
         ;;
         dump)
-            dumpDB
-            if [[ ! -z $2 ]]
-			then
-			    DUMP_DIR=$2
-			fi	
-            break
+            call_func="dumpDB"
+            required_params="db d"
         ;;
         restore)
-            restoreDB
-            if [[ ! -z $2 ]]
-			then
-			    RESTORE_DIR=$2
-			fi	
-            break
+            call_func="restoreDB"
+            required_params="db f"
         ;;
-        *) echo "USAGE: 
-           pg_partitioner.sh [create-master | create-partitions | create-trigger | fill | analyze | swap] [nodesPerPartition]
-           pg_partitioner.sh [unswap | count-nodes]
-           pg_partitioner.sh [dump | restore] [folder-path]"
-           break
+    	-db)
+            _arg_database_name="$2"
+        ;;
+    	-np)
+            _arg_nodes_per_partition="$2"
+        ;;
+    	-d)
+            _arg_dump_directory="$2"
+        ;;
+    	-f)
+            _arg_restore_file="$2"
+        ;;
+        -h) printHelp
     esac
     shift
 done
+
+checkParams "$required_params"
+$call_func
