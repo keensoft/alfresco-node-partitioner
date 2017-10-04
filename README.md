@@ -61,12 +61,37 @@ Partitioning tables storing 100,000 nodes per partition.
 As `node_id` is used (which is primary on ALF_NODE table), every partition will store at least 30x this number.
 
 ```
-$ ./pg_partitioner.sh create-master -db alfresco
-$ ./pg_partitioner.sh create-partitions -db alfresco -np 100000
-$ ./pg_partitioner.sh create-trigger -db alfresco -np 100000
-$ ./pg_partitioner.sh fill -db alfresco -np 100000
-$ ./pg_partitioner.sh analyze -db alfresco -np 100000
-$ ./pg_partitioner.sh swap -db alfresco -np 100000
+#!/bin/bash
+# Alfresco PostgreSQL partitioner execution
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+# Default values
+database_name=alfresco
+nodes=100000
+
+# Dump
+echo "$(date) Starting dump..."
+./pg_partitioner.sh dump -db ${database_name} -d /tmp
+echo "$(date) ... dumped!"
+
+# Partitioning
+echo "$(date) Creating DDL..."
+./pg_partitioner.sh create-master -db ${database_name}
+./pg_partitioner.sh create-partitions -db ${database_name} -np ${nodes}
+./pg_partitioner.sh create-trigger -db ${database_name} -np ${nodes}
+echo "$(date) ... DDL created!"
+
+echo "$(date) Filling partitioned tables..."
+./pg_partitioner.sh fill -db ${database_name} -np ${nodes}
+echo "$(date) ... tables filled!"
+
+echo "$(date) Preparing new tables..."
+./pg_partitioner.sh analyze -db ${database_name} -np ${nodes}
+./pg_partitioner.sh swap -db ${database_name} -np ${nodes}
+echo "$(date) ... tables ready to use!"
 ```
 
 A **cron** script can be created in order to create new partitions `add-partition` once a nodes number limit is reached.

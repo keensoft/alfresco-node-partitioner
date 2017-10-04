@@ -34,23 +34,23 @@ function numberOfNodes {
 }
 
 function dumpDB {
-	echo "$(date) Dumping DB..."
+	echo "Dumping DB..."
 	mkdir -p $_arg_dump_directory
 	sudo -u postgres pg_dump $_arg_database_name > $_arg_dump_directory/$_arg_database_name.dump
-	echo "$(date) Dumping DB done!"
+	echo "Dumping DB done!"
 }
 
 function restoreDB {
-	echo "$(date) Restoring DB..."
+	echo "Restoring DB..."
 	sudo -u postgres psql -t -c "drop database $_arg_database_name;"
     sudo -u postgres psql -t -c "create database $_arg_database_name with encoding 'utf8';"
 	sudo -u postgres psql $_arg_database_name < $_arg_restore_file
-	echo "$(date) Restoring DB done!"	
+	echo "Restoring DB done!"	
 }
 
 function createMasterTable {
 
-	echo "$(date) Creating Master Table ..."
+	echo "Creating Master Table ..."
 
 	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_intermediate (LIKE alf_node_properties INCLUDING ALL);"
 	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE FUNCTION alf_node_properties_insert_trigger()
@@ -64,7 +64,7 @@ function createMasterTable {
     						     FOR EACH ROW EXECUTE PROCEDURE alf_node_properties_insert_trigger();"
 
 	echo "... table alf_node_properties_intermediate created!"
-	echo "$(date) Creating Master Table done!"
+	echo "Creating Master Table done!"
 
 }
 
@@ -72,7 +72,7 @@ function createPartitions {
 
 	initNumberOfNodes
 
-	echo "$(date) Creating $PARTITIONS partitions..."
+	echo "Creating $PARTITIONS partitions..."
 
 	for i in `seq 1 $PARTITIONS`;
 	do
@@ -99,7 +99,7 @@ function createPartitions {
 	done
 	
 	echo "$PARTITIONS has been created!"
-	echo "$(date) Creating partitions done!"
+	echo "Creating partitions done!"
 }
 
 function addPartition {
@@ -107,7 +107,7 @@ function addPartition {
 	initNumberOfNodes
 	PARTITIONS=$(($PARTITIONS + 1))
 
-	echo "$(date) Adding new partition ..."
+	echo "Adding new partition ..."
 
 	PART_NAME=$PARTITIONS
 	MIN_LEVEL=$((($PARTITIONS - 1) * $_arg_nodes_per_partition))
@@ -132,7 +132,7 @@ function addPartition {
 
     triggerInsertRows
 
-	echo "$(date) Adding new partition done!"
+	echo "Adding new partition done!"
 	 
 }
 
@@ -143,7 +143,7 @@ function triggerInsertRows {
 	    initNumberOfNodes
     fi
 
-	echo "$(date) Creating Trigger..."
+	echo "Creating Trigger..."
 
 	body=
 	for i in `seq 1 $PARTITIONS`;
@@ -172,7 +172,7 @@ function triggerInsertRows {
               \$\$ LANGUAGE plpgsql;"
 
     echo "Trigger alf_node_properties_insert_trigger has been created!"
-    echo "$(date) Creating Trigger done!"
+    echo "Creating Trigger done!"
 
 }
 
@@ -180,7 +180,7 @@ function fill {
 
 	initNumberOfNodes
 
-    echo "$(date) Copying rows..."
+    echo "Copying rows..."
 
 	for i in `seq 1 $PARTITIONS`;
 	do
@@ -217,18 +217,18 @@ function fill {
 							FROM alf_node_properties
 							WHERE node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL;"
 	
-    echo "$(date) Rows for partition $i has been copied"
+    echo "Rows for partition $i has been copied"
 
 	done
 
- 	echo "$(date) Copying rows done!"
+ 	echo "Copying rows done!"
 }
 
 function analyze {
 
 	initNumberOfNodes
 
-    echo "$(date) Analyzing new tables..."
+    echo "Analyzing new tables..."
 
     for i in `seq 1 $PARTITIONS`;
 	do
@@ -237,14 +237,14 @@ function analyze {
     done
     sudo -u postgres psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_intermediate" 
 
-    echo "$(date) Analyzing tables done!"
+    echo "Analyzing tables done!"
 }
 
 function swap {
 
 	initNumberOfNodes
 
-	echo "$(date) Swapping tables..."
+	echo "Swapping tables..."
 
     sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties RENAME TO alf_node_properties_retired"
     sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_intermediate RENAME TO alf_node_properties"
@@ -256,7 +256,7 @@ function swap {
 	 sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
     done
 
-	echo "$(date) Swapping tables done!"
+	echo "Swapping tables done!"
 
 }
 
