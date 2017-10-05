@@ -27,6 +27,7 @@ Partitioning ALF_NODE_PROPERTIES table
 * create-trigger: insertion trigger `alf_node_properties_insert_trigger` is created 
 * fill: data is copied from ALF_NODE_PROPERTIES to ALF_NODE_PROPERTIES_INTERMEDIATE
 * analyze: new tables are analyzed
+* vacuum: VACUUM FULL is performed on new tables
 * swap: drop previous ALF_NODE_PROPERTIES and rename ALF_NODE_PROPERTIES_INTERMEDIATE to ALF_NODE_PROPERTIES
 
 Undo partitioning
@@ -47,7 +48,7 @@ Using the script
 
 ```
 Usage: ./pg_partitioner.sh <command> -db <database> -np <nodes-per-partition> -d <folder-path> -f <dump-file>
-	<command>: create-master | create-partitions | create-trigger | fill | analyze | swap
+	<command>: create-master | create-partitions | create-trigger | fill | analyze | vacuum | swap
 	           unswap | count-nodes | dump | restore
 	-db: Alfresco database name
 	-np: Number of nodes to be stored on each partition
@@ -90,6 +91,7 @@ echo "$(date) ... tables filled!"
 
 echo "$(date) Preparing new tables..."
 ./pg_partitioner.sh analyze -db ${database_name} -np ${nodes}
+./pg_partitioner.sh vacuum -db ${database_name} -np ${nodes}
 ./pg_partitioner.sh swap -db ${database_name} -np ${nodes}
 echo "$(date) ... tables ready to use!"
 ```

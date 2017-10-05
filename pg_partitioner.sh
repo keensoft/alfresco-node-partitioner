@@ -260,6 +260,22 @@ function swap {
 
 }
 
+function vacuum {
+
+	initNumberOfNodes	
+
+	echo "Performing VACUUM FULL..."
+
+	for i in `seq 1 $PARTITIONS`;
+	do
+	 PART_NAME=$i
+	 sudo -u postgres psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_$PART_NAME" 
+    done
+    sudo -u postgres psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_intermediate" 
+
+	echo "VACUUM FULL done!"
+}
+
 function unswap {
 
 	echo "Undo swapping..."
@@ -272,7 +288,7 @@ function unswap {
 
 function printHelp {
 	printf 'Usage: %s <command> -db <database> -np <nodes-per-partition> -d <folder-path> -f <dump-file> \n' "$0"
-	printf "\t%s\n" "<command>: create-master | create-partitions | create-trigger | fill | analyze | swap"
+	printf "\t%s\n" "<command>: create-master | create-partitions | create-trigger | fill | analyze | vacuum | swap"
 	printf "\t%s\n" "           unswap | count-nodes | dump | restore"
 	printf "\t%s\n" "-db: Alfresco database name"
 	printf "\t%s\n" "-np: Number of nodes to be stored on each partition"
@@ -346,6 +362,10 @@ do
         ;;
         analyze)
             call_func="analyze"
+            required_params="db np"
+        ;;
+        vacuum)
+            call_func="vacuum"
             required_params="db np"
         ;;
         swap)
