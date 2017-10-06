@@ -112,11 +112,13 @@ function addPartition {
 	MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
     PCT_FILLED=$(($COUNT_NODES * 100 / $MAX_LEVEL))
 
-    # 75 % storage from last partition is full
-    if [[ $PCT_FILLED > 75 ]]; then
+    # 50 % storage from last partition is full
+    if [[ $PCT_FILLED > 50 ]]; then
 
 
 		PARTITIONS=$(($PARTITIONS + 1))
+	    MIN_LEVEL=$((($PARTITIONS - 1) * $_arg_nodes_per_partition))
+	    MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 	    PART_NAME=$PARTITIONS
 
     	# Check if partition exists
