@@ -105,34 +105,59 @@ function createPartitions {
 function addPartition {
 
 	initNumberOfNodes
-	PARTITIONS=$(($PARTITIONS + 1))
 
 	echo "Adding new partition ..."
 
-	PART_NAME=$PARTITIONS
 	MIN_LEVEL=$((($PARTITIONS - 1) * $_arg_nodes_per_partition))
 	MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
+    PCT_FILLED=$(($COUNT_NODES * 100 / $MAX_LEVEL))
 
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
-	                                                (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
-	                                                INHERITS (alf_node_properties);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-	sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+    # 75 % storage from last partition is full
+    if [[ $PCT_FILLED > 75 ]]; then
 
-	sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
 
-    echo "Partition alf_node_properties_$PART_NAME created"
+		PARTITIONS=$(($PARTITIONS + 1))
+	    PART_NAME=$PARTITIONS
 
-    triggerInsertRows
+    	# Check if partition exists
+    	OUTPUT=$(sudo -u postgres psql -d $_arg_database_name -t -c "SELECT EXISTS (
+															   SELECT 1
+															   FROM   information_schema.tables 
+															   WHERE  table_name = 'alf_node_properties_$PART_NAME'
+															   );")
+        
+		if [[ "$OUTPUT" == " f" ]]; then
 
-	echo "Adding new partition done!"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+			                                                (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
+			                                                INHERITS (alf_node_properties);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+			sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+
+			sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
+
+		    echo "Partition alf_node_properties_$PART_NAME created"
+
+		    triggerInsertRows
+
+			echo "Adding new partition done!"
+
+		else
+
+			echo "No new partition is required, partition has not been created!"
+
+		fi
+    
+    else
+        echo "No new partition is required, partition has not been created!"
+	fi
 	 
 }
 

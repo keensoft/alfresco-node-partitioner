@@ -96,7 +96,12 @@ echo "$(date) Preparing new tables..."
 echo "$(date) ... tables ready to use!"
 ```
 
-A **cron** script can be created in order to create new partitions `add-partition` once a nodes number limit is reached.
+A **cron** script can be created in order to create new partitions `add-partition`: when last partition is 75 % full, a new partition will be created.
+
+```bash
+$ cat /etc/cron.daily/add_partition.sh
+/opt/alfresco/scripts/pg_partitioner.sh add-partition -db alfresco -np 100000
+```
 
 Todo list
 ----------------------
