@@ -256,7 +256,7 @@ function fill {
 
        CURRENT_MIN_LEVEL=$(($MIN_LEVEL))
        CURRENT_MAX_LEVEL=$(($MIN_LEVEL + $MAX_BLOCK_INSERT))
-       while [[ $CURRENT_MAX_LEVEL -le $MAX_LEVEL ]]; do
+       while [[ $CURRENT_MAX_LEVEL -le $MAX_LEVEL && $CURRENT_MIN_LEVEL -le $COUNT_NODES ]]; do
            insertInto $CURRENT_MIN_LEVEL $CURRENT_MAX_LEVEL
            echo "Rows $CURRENT_MIN_LEVEL to $CURRENT_MAX_LEVEL for partition $i have been copied"
            CURRENT_MAX_LEVEL=$(($CURRENT_MAX_LEVEL + $MAX_BLOCK_INSERT))
