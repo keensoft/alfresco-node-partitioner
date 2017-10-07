@@ -11,7 +11,10 @@ _arg_database_name=
 _arg_nodes_per_partition=
 _arg_dump_directory=
 _arg_restore_file=
+
+# CONSTANTS
 PARTITIONS=
+MAX_BLOCK_INSERT=1000000
 
 ### FUNCTIONS
 function existsDatabase {
@@ -203,6 +206,39 @@ function triggerInsertRows {
 
 }
 
+function insertInto {
+
+   sudo -u postgres psql -d $_arg_database_name -t -c "INSERT INTO alf_node_properties_intermediate (
+                        node_id,
+                        actual_type_n,
+                        persisted_type_n,
+                        boolean_value,
+                        long_value,
+                        float_value,
+                        double_value,
+                        string_value,
+                        serializable_value,
+                        qname_id,
+                        list_index,
+                        locale_id
+                )
+                    SELECT node_id,
+                    actual_type_n,
+                    persisted_type_n,
+                    boolean_value,
+                    long_value,
+                    float_value,
+                    double_value,
+                    string_value,
+                    serializable_value,
+                    qname_id,
+                    list_index,
+                    locale_id 
+                    FROM alf_node_properties
+                    WHERE node_id > $1 AND node_id <= $2;"
+
+}
+
 function fill {
 
     initNumberOfNodes
@@ -215,36 +251,25 @@ function fill {
      MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
      MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 
-     sudo -u postgres psql -d $_arg_database_name -t -c "INSERT INTO alf_node_properties_intermediate (
-                                node_id,
-                                actual_type_n,
-                                persisted_type_n,
-                                boolean_value,
-                                long_value,
-                                float_value,
-                                double_value,
-                                string_value,
-                                serializable_value,
-                                qname_id,
-                                list_index,
-                                locale_id
-                        )
-                            SELECT node_id,
-                            actual_type_n,
-                            persisted_type_n,
-                            boolean_value,
-                            long_value,
-                            float_value,
-                            double_value,
-                            string_value,
-                            serializable_value,
-                            qname_id,
-                            list_index,
-                            locale_id 
-                            FROM alf_node_properties
-                            WHERE node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL;"
+     # Split INSERT INTO to ensure performance 
+     if [[ $_arg_nodes_per_partition -gt $MAX_BLOCK_INSERT ]]; then
+
+       CURRENT_MIN_LEVEL=$(($MIN_LEVEL))
+       CURRENT_MAX_LEVEL=$(($MIN_LEVEL + $MAX_BLOCK_INSERT))
+       while [[ $CURRENT_MAX_LEVEL -le $MAX_LEVEL ]]; do
+           insertInto $CURRENT_MIN_LEVEL $CURRENT_MAX_LEVEL
+           echo "Rows $CURRENT_MIN_LEVEL to $CURRENT_MAX_LEVEL for partition $i have been copied"
+           CURRENT_MAX_LEVEL=$(($CURRENT_MAX_LEVEL + $MAX_BLOCK_INSERT))
+           CURRENT_MIN_LEVEL=$(($CURRENT_MIN_LEVEL + $MAX_BLOCK_INSERT))
+       done
+
+     else
+
+       insertInto $MIN_LEVEL $MAX_LEVEL
+
+    fi
     
-    echo "Rows for partition $i has been copied"
+    echo "Rows for partition $i have been copied"
 
     done
 
