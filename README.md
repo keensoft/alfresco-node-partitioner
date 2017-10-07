@@ -107,7 +107,7 @@ Known issues
 ----------------------
 `sudo: sorry, you must have a tty to run sudo`
 
-When running as `nohup`, previous error can be received if `ssh` session is closed. It is most-likely that you are running on a Linux distribution with `sudo` configured to require a **tty**. To disable `requiretty`, this configuration can be changed for user `postgres` adding following line to `etc/sudoers`
+When running as `nohup`, previous error can be received if `ssh` session is closed. It is most-likely that you are running on a Linux distribution with `sudo` configured to require a **tty**. To disable `requiretty` for user `postgres`, following line can be added to `etc/sudoers`
 
 ```
 Defaults:postgres !requiretty
