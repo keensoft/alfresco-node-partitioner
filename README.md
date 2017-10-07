@@ -103,6 +103,16 @@ $ cat /etc/cron.daily/add_partition.sh
 /opt/alfresco/scripts/pg_partitioner.sh add-partition -db alfresco -np 100000
 ```
 
+Known issues
+----------------------
+`sudo: sorry, you must have a tty to run sudo`
+
+When running as `nohup`, previous error can be received if `ssh` session is closed. It is most-likely that you are running on a Linux distribution with `sudo` configured to require a **tty**. To disable `requiretty`, this configuration can be changed for user `postgres` adding following line to `etc/sudoers`
+
+```
+Defaults:postgres !requiretty
+```
+
 Todo list
 ----------------------
 
