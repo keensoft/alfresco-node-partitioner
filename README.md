@@ -110,7 +110,7 @@ Known issues
 When running as `nohup`, previous error can be received if `ssh` session is closed. It is most-likely that you are running on a Linux distribution with `sudo` configured to require a **tty**. To disable `requiretty` for user `postgres`, following line can be added to `etc/sudoers`
 
 ```
-Defaults:postgres !requiretty
+Defaults:root !requiretty
 ```
 
 Todo list
