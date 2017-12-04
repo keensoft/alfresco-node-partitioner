@@ -113,6 +113,20 @@ When running as `nohup`, previous error can be received if `ssh` session is clos
 Defaults:root !requiretty
 ```
 
+Alternatively the script can be used without requiring `sudo` by changing PSQL Commands...
+
+```bash
+# PSQL COMMAND
+psql="psql"
+pg_dump="pg_dump"
+```
+
+... and invoking it via `su`. 
+
+```bash
+$ su postgres -c './pg_partitioner.sh -db alfresco count-nodes'
+```
+
 Todo list
 ----------------------
 

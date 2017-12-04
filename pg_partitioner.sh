@@ -6,6 +6,10 @@ set -o pipefail
 set -o nounset
 # set -o xtrace
 
+# PSQL COMMAND
+psql="sudo -u postgres psql"
+pg_dump="sudo -u postgres pg_dump"
+
 # THE DEFAULTS INITIALIZATION
 _arg_database_name=
 _arg_nodes_per_partition=
@@ -18,7 +22,7 @@ MAX_BLOCK_INSERT=1000000
 
 ### FUNCTIONS
 function existsDatabase {
-    if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw $_arg_database_name; then
+    if $psql -lqt | cut -d \| -f 1 | grep -qw $_arg_database_name; then
         echo "Database $_arg_database_name exists in local PostgreSQL"
     else
         echo "ERROR: database $_arg_database_name does NOT exist in local PostgreSQL!"
@@ -32,22 +36,22 @@ function initNumberOfNodes {
 }
 
 function numberOfNodes {
-    NONODES=`sudo -u postgres psql -d $_arg_database_name -t -c "select max(node_id) from alf_node_properties"`
+    NONODES=`$psql -d $_arg_database_name -t -c "select max(node_id) from alf_node_properties"`
     echo "$NONODES";
 }
 
 function dumpDB {
     echo "Dumping DB..."
     mkdir -p $_arg_dump_directory
-    sudo -u postgres pg_dump $_arg_database_name > $_arg_dump_directory/$_arg_database_name.dump
+    $pg_dump $_arg_database_name > $_arg_dump_directory/$_arg_database_name.dump
     echo "Dumping DB done!"
 }
 
 function restoreDB {
     echo "Restoring DB..."
-    sudo -u postgres psql -t -c "drop database $_arg_database_name;"
-    sudo -u postgres psql -t -c "create database $_arg_database_name with encoding 'utf8';"
-    sudo -u postgres psql $_arg_database_name < $_arg_restore_file
+    $psql -t -c "drop database $_arg_database_name;"
+    $psql -t -c "create database $_arg_database_name with encoding 'utf8';"
+    $psql $_arg_database_name < $_arg_restore_file
     echo "Restoring DB done!"    
 }
 
@@ -55,14 +59,14 @@ function createMasterTable {
 
     echo "Creating Master Table ..."
 
-    sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_intermediate (LIKE alf_node_properties INCLUDING ALL);"
-    sudo -u postgres psql -d $_arg_database_name -t -c "CREATE FUNCTION alf_node_properties_insert_trigger()
+    $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_intermediate (LIKE alf_node_properties INCLUDING ALL);"
+    $psql -d $_arg_database_name -t -c "CREATE FUNCTION alf_node_properties_insert_trigger()
                                  RETURNS trigger AS \$\$ 
                                     BEGIN 
                                 RAISE EXCEPTION 'Create partitions first.'; 
                                  END;
                                  \$\$ LANGUAGE plpgsql;"
-    sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TRIGGER alf_node_properties_insert_trigger 
+    $psql -d $_arg_database_name -t -c "CREATE TRIGGER alf_node_properties_insert_trigger 
                                  BEFORE INSERT ON alf_node_properties_intermediate 
                                  FOR EACH ROW EXECUTE PROCEDURE alf_node_properties_insert_trigger();"
 
@@ -84,18 +88,18 @@ function createPartitions {
      MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
      MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+     $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
                                                     (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
                                                     INHERITS (alf_node_properties_intermediate);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-     sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+     $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
 
     echo "Partition alf_node_properties_$PART_NAME created"
      
@@ -125,7 +129,7 @@ function addPartition {
         PART_NAME=$PARTITIONS
 
         # Check if partition exists
-        OUTPUT=$(sudo -u postgres psql -d $_arg_database_name -t -c "SELECT EXISTS (
+        OUTPUT=$($psql -d $_arg_database_name -t -c "SELECT EXISTS (
                                                                SELECT 1
                                                                FROM   information_schema.tables 
                                                                WHERE  table_name = 'alf_node_properties_$PART_NAME'
@@ -133,20 +137,20 @@ function addPartition {
         
         if [[ "$OUTPUT" == " f" ]]; then
 
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+            $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
                                                             (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
                                                             INHERITS (alf_node_properties);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-            sudo -u postgres psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+            $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
 
-            sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
+            $psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
 
             echo "Partition alf_node_properties_$PART_NAME created"
 
@@ -189,7 +193,7 @@ function triggerInsertRows {
      fi
     done
 
-    sudo -u postgres psql -d $_arg_database_name -t -c "CREATE OR REPLACE FUNCTION alf_node_properties_insert_trigger()
+    $psql -d $_arg_database_name -t -c "CREATE OR REPLACE FUNCTION alf_node_properties_insert_trigger()
             RETURNS trigger AS
               \$\$
               BEGIN 
@@ -208,7 +212,7 @@ function triggerInsertRows {
 
 function insertInto {
 
-   sudo -u postgres psql -d $_arg_database_name -t -c "INSERT INTO alf_node_properties_intermediate (
+   $psql -d $_arg_database_name -t -c "INSERT INTO alf_node_properties_intermediate (
                         node_id,
                         actual_type_n,
                         persisted_type_n,
@@ -285,9 +289,9 @@ function analyze {
     for i in `seq 1 $PARTITIONS`;
     do
      PART_NAME=$i
-     sudo -u postgres psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_$PART_NAME" 
+     $psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_$PART_NAME" 
     done
-    sudo -u postgres psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_intermediate" 
+    $psql -d $_arg_database_name -t -c "ANALYZE VERBOSE alf_node_properties_intermediate" 
 
     echo "Analyzing tables done!"
 }
@@ -298,14 +302,14 @@ function swap {
 
     echo "Swapping tables..."
 
-    sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties RENAME TO alf_node_properties_retired"
-    sudo -u postgres psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_intermediate RENAME TO alf_node_properties"
-    sudo -u postgres psql -d $_arg_database_name -t -c "DROP TABLE alf_node_properties_retired"
-    sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties TO alfresco"
+    $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties RENAME TO alf_node_properties_retired"
+    $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_intermediate RENAME TO alf_node_properties"
+    $psql -d $_arg_database_name -t -c "DROP TABLE alf_node_properties_retired"
+    $psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties TO alfresco"
     for i in `seq 1 $PARTITIONS`;
     do
      PART_NAME=$i
-     sudo -u postgres psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
+     $psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
     done
 
     echo "Swapping tables done!"
@@ -321,9 +325,9 @@ function vacuum {
     for i in `seq 1 $PARTITIONS`;
     do
      PART_NAME=$i
-     sudo -u postgres psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_$PART_NAME" 
+     $psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_$PART_NAME" 
     done
-    sudo -u postgres psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_intermediate" 
+    $psql -d $_arg_database_name -t -c "VACUUM VERBOSE alf_node_properties_intermediate" 
 
     echo "VACUUM FULL done!"
 }
