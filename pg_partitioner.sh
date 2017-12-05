@@ -75,6 +75,37 @@ function createMasterTable {
 
 }
 
+# Internal use
+# $1 = Part name
+# $2 = Min level for the partition
+# $3 = Max level for the partition
+# $4 = Inherits table
+function createPartition {
+
+  PART_NAME=$1
+  MIN_LEVEL=$2
+  MAX_LEVEL=$3
+  INHERITS_TABLE=$4
+
+  $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
+                                                (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
+                                                INHERITS ($INHERITS_TABLE);"
+  $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
+  $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+
+  $psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
+
+  echo "Partition alf_node_properties_$PART_NAME created"
+
+}
+
 function createPartitions {
 
     initNumberOfNodes
@@ -84,28 +115,15 @@ function createPartitions {
     for i in `seq 1 $PARTITIONS`;
     do
 
-     PART_NAME=$i
-     MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
-     MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
+      PART_NAME=$i
+      MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
+      MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
 
-     $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
-                                                    (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
-                                                    INHERITS (alf_node_properties_intermediate);"
-     $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-     $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
+      createPartition $PART_NAME $MIN_LEVEL $MAX_LEVEL "alf_node_properties_intermediate"
 
-    echo "Partition alf_node_properties_$PART_NAME created"
-     
     done
     
-    echo "$PARTITIONS has been created!"
+    echo "$PARTITIONS have been created!"
     echo "Creating partitions done!"
 }
 
@@ -119,9 +137,32 @@ function addPartition {
     MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
     PCT_FILLED=$(($COUNT_NODES * 100 / $MAX_LEVEL))
 
+    # Check if every intermediate partition has been created
+    for i in `seq 1 $PARTITIONS`;
+    do
+
+      PART_NAME=$i
+      MIN_LEVEL=$((($i - 1) * $_arg_nodes_per_partition))
+      MAX_LEVEL=$(($MIN_LEVEL + $_arg_nodes_per_partition))
+
+      # Check if partition exists
+      OUTPUT=$($psql -d $_arg_database_name -t -c "SELECT EXISTS (
+                   SELECT 1
+                   FROM   information_schema.tables 
+                   WHERE  table_name = 'alf_node_properties_$PART_NAME'
+                   );")
+        
+      if [[ "$OUTPUT" == " f" ]]; then
+          createPartition $PART_NAME $MIN_LEVEL $MAX_LEVEL "alf_node_properties"
+          echo "Partition alf_node_properties_$PART_NAME created"
+          triggerInsertRows
+          echo "Adding gap partition done!"
+      fi
+
+    done
+
     # 50 % storage from last partition is full
     if [[ $PCT_FILLED > 50 ]]; then
-
 
         PARTITIONS=$(($PARTITIONS + 1))
         MIN_LEVEL=$((($PARTITIONS - 1) * $_arg_nodes_per_partition))
@@ -130,32 +171,15 @@ function addPartition {
 
         # Check if partition exists
         OUTPUT=$($psql -d $_arg_database_name -t -c "SELECT EXISTS (
-                                                               SELECT 1
-                                                               FROM   information_schema.tables 
-                                                               WHERE  table_name = 'alf_node_properties_$PART_NAME'
-                                                               );")
-        
+                   SELECT 1
+                   FROM   information_schema.tables 
+                   WHERE  table_name = 'alf_node_properties_$PART_NAME'
+                   );")
+
         if [[ "$OUTPUT" == " f" ]]; then
 
-            $psql -d $_arg_database_name -t -c "CREATE TABLE alf_node_properties_$PART_NAME
-                                                            (CHECK (node_id > $MIN_LEVEL AND node_id <= $MAX_LEVEL))
-                                                            INHERITS (alf_node_properties);"
-            $psql -d $_arg_database_name -t -c "ALTER TABLE alf_node_properties_$PART_NAME ADD PRIMARY KEY (node_id, qname_id, list_index, locale_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_n_$PART_NAME ON alf_node_properties_$PART_NAME (node_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_qn_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX fk_alf_nprop_loc_$PART_NAME ON alf_node_properties_$PART_NAME (locale_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_s_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, string_value, node_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_l_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, long_value, node_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_b_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, boolean_value, node_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_f_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, float_value, node_id);"
-            $psql -d $_arg_database_name -t -c "CREATE INDEX idx_alf_nprop_d_$PART_NAME ON alf_node_properties_$PART_NAME (qname_id, double_value, node_id);"
-
-            $psql -d $_arg_database_name -t -c "GRANT ALL PRIVILEGES ON TABLE alf_node_properties_$PART_NAME TO alfresco" 
-
-            echo "Partition alf_node_properties_$PART_NAME created"
-
+            createPartition $PART_NAME $MIN_LEVEL $MAX_LEVEL "alf_node_properties"
             triggerInsertRows
-
             echo "Adding new partition done!"
 
         else
